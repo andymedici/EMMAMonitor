@@ -1,0 +1,10 @@
+fastapi
+uvicorn[standard]
+feedparser
+requests
+beautifulsoup4
+pdfplumber
+psycopg2-binary
+APScheduler
+Jinja2
+python-dotenv
