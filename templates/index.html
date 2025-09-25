@@ -1,0 +1,59 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>EMMA Monitor — Search</title>
+    <style>
+      body {
+        font-family: system-ui, -apple-system, Roboto, Arial;
+        padding: 24px;
+      }
+      .card {
+        border: 1px solid #eee;
+        padding: 12px;
+        border-radius: 8px;
+        margin-bottom: 8px;
+      }
+      form {
+        margin-bottom: 20px;
+      }
+      input[type=text] {
+        padding: 8px;
+        width: 300px;
+      }
+      button {
+        padding: 8px 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>EMMA Monitor</h1>
+
+    <form method="post" action="/search">
+      <input type="text" name="query" placeholder="Search..." value="{{ query or '' }}" />
+      <button type="submit">Search</button>
+    </form>
+
+    {% if query %}
+      <h2>Results for: {{ query }}</h2>
+    {% else %}
+      <h2>Recent Matches (last 7 days)</h2>
+    {% endif %}
+
+    {% if matches|length == 0 %}
+      <p>No results.</p>
+    {% else %}
+      {% for m in matches %}
+        <div class="card">
+          <div>
+            <a href="{{ m.url }}" target="_blank">{{ m.title }}</a>
+          </div>
+          <div><small>{{ m.matched_at }}</small></div>
+          {% if m.matched_terms %}
+            <div><small>Matched terms: {{ m.matched_terms | join(', ') }}</small></div>
+          {% endif %}
+        </div>
+      {% endfor %}
+    {% endif %}
+  </body>
+</html>
