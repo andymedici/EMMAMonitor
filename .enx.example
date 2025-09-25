@@ -1,20 +1,19 @@
+# EMMA RSS
+EMMA_RSS_URL=https://emma.msrb.org/RSS/CD/rss.xml
+
+
+# Async Postgres URL
+DATABASE_URL=postgresql+asyncpg://user:pass@host:5432/dbname
+
+
 # Resend
-RESEND_API_KEY=re_XXXXXXXXXXXX
+RESEND_API_KEY=re_XXXXXXXXXXXXXXXXXXXX
 FROM_EMAIL=alerts@yourdomain.com
 ALERT_EMAILS=you@example.com,other@example.com
 
 
-# Postgres (Railway provides DATABASE_URL)
-DATABASE_URL=postgresql://user:pass@host:5432/dbname
-
-
-# EMMA RSS feed (default is continuing disclosures)
-EMMA_RSS_URL=https://emma.msrb.org/RSS/CD/rss.xml
-
-
-# Optional: how many days to keep matches
+# Retention / behavior
 RETENTION_DAYS=30
-
-
-# Optional: run initial scan on startup? true/false
 RUN_INITIAL_SCAN=true
+FETCH_DOCS_ON_SCAN=true
+DAILY_QUERIES_JSON=["airport AND lounge"]
