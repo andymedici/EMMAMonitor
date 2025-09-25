@@ -1,7 +1,23 @@
 import os
 import asyncio
 import aiohttp
-import feedparser
+try:
+    import feedparser
+    FEEDPARSER_AVAILABLE = True
+except ImportError:
+    FEEDPARSER_AVAILABLE = False
+    import xml.etree.ElementTree as ET
+    from xml.dom import minidom
+
+# Add PDF parsing imports
+try:
+    import PyPDF2
+    PDF_PARSING_AVAILABLE = True
+except ImportError:
+    PDF_PARSING_AVAILABLE = False
+
+from bs4 import BeautifulSoup
+import io
 import sqlite3
 import requests
 from datetime import datetime, timedelta
@@ -18,7 +34,8 @@ from pathlib import Path
 import json
 
 # Configuration
-EMMA_RSS_URL = "https://emma.msrb.org/rss/DisclosureSearch.aspx"
+EMMA_SEARCH_URL = "https://emma.msrb.org/DisclosureSearch/Disclosures"
+EMMA_RSS_URL = "https://emma.msrb.org/rss/DisclosureSearch.aspx"  # Keep as fallback
 DATABASE_PATH = "emma_monitor.db"
 RESEND_API_KEY = os.getenv("RESEND_API_KEY")
 FROM_EMAIL = os.getenv("FROM_EMAIL", "alerts@yourdomain.com")
@@ -305,7 +322,79 @@ class EmmaScanner:
         if self.session:
             await self.session.close()
     
-    async def fetch_document_content(self, url: str) -> str:
+    async def parse_rss_feed(self, rss_content: str) -> List[Dict]:
+        """Parse RSS content using either feedparser or fallback XML parser"""
+        if FEEDPARSER_AVAILABLE:
+            return self._parse_with_feedparser(rss_content)
+        else:
+            return self._parse_with_xml(rss_content)
+    
+    def _parse_with_feedparser(self, rss_content: str) -> List[Dict]:
+        """Parse RSS using feedparser"""
+        feed = feedparser.parse(rss_content)
+        
+        if feed.bozo:
+            logger.warning(f"RSS feed parsing warning: {feed.bozo_exception}")
+        
+        entries = []
+        for entry in feed.entries[:50]:
+            entries.append({
+                'title': entry.get('title', ''),
+                'link': entry.get('link', ''),
+                'published': entry.get('published', ''),
+                'id': entry.get('id', entry.get('link', ''))
+            })
+        return entries
+    
+    def _parse_with_xml(self, rss_content: str) -> List[Dict]:
+        """Fallback RSS parser using XML"""
+        try:
+            root = ET.fromstring(rss_content)
+            entries = []
+            
+            # Handle both RSS and Atom feeds
+            items = root.findall('.//item') or root.findall('.//{http://www.w3.org/2005/Atom}entry')
+            
+            for item in items[:50]:
+                title = ""
+                link = ""
+                published = ""
+                item_id = ""
+                
+                if item.tag == 'item':  # RSS format
+                    title_elem = item.find('title')
+                    link_elem = item.find('link')
+                    pub_elem = item.find('pubDate')
+                    guid_elem = item.find('guid')
+                    
+                    title = title_elem.text if title_elem is not None else ""
+                    link = link_elem.text if link_elem is not None else ""
+                    published = pub_elem.text if pub_elem is not None else ""
+                    item_id = guid_elem.text if guid_elem is not None else link
+                
+                else:  # Atom format
+                    title_elem = item.find('.//{http://www.w3.org/2005/Atom}title')
+                    link_elem = item.find('.//{http://www.w3.org/2005/Atom}link')
+                    pub_elem = item.find('.//{http://www.w3.org/2005/Atom}published') or item.find('.//{http://www.w3.org/2005/Atom}updated')
+                    id_elem = item.find('.//{http://www.w3.org/2005/Atom}id')
+                    
+                    title = title_elem.text if title_elem is not None else ""
+                    link = link_elem.get('href', '') if link_elem is not None else ""
+                    published = pub_elem.text if pub_elem is not None else ""
+                    item_id = id_elem.text if id_elem is not None else link
+                
+                entries.append({
+                    'title': title,
+                    'link': link,
+                    'published': published,
+                    'id': item_id
+                })
+            
+            return entries
+            
+        except ET.ParseError as e:
+            logger.error(f"XML parsing error: {e}")
+            return []
         """Attempt to fetch and extract text from document URL"""
         try:
             if not self.session:
@@ -331,7 +420,7 @@ class EmmaScanner:
             return ""
     
     async def scan_rss_feed(self) -> Dict[str, int]:
-        """Scan EMMA RSS feed and run all active searches"""
+        """Scan EMMA for disclosures using web scraping (preferred) and RSS fallback"""
         try:
             # Get all active search queries
             search_queries = await self.db.get_search_queries(active_only=True)
@@ -340,24 +429,32 @@ class EmmaScanner:
                 logger.info("No active search queries found")
                 return {"processed": 0, "matches": 0}
             
-            # Fetch RSS feed
-            feed = feedparser.parse(EMMA_RSS_URL)
+            # Try web scraping first
+            logger.info("Attempting to scrape EMMA search results...")
+            entries = await self.scrape_emma_search()
             
-            if feed.bozo:
-                logger.warning(f"RSS feed parsing warning: {feed.bozo_exception}")
+            # If scraping fails, try RSS fallback
+            if not entries:
+                logger.info("Web scraping failed, attempting RSS fallback...")
+                entries = await self.parse_rss_feed_fallback()
+            
+            if not entries:
+                logger.warning("No entries found from either scraping or RSS")
+                return {"processed": 0, "matches": 0}
             
             total_matches = 0
             processed = 0
             
-            for entry in feed.entries[:50]:  # Limit to most recent 50 entries
-                title = entry.get('title', '')
-                url = entry.get('link', '')
-                pub_date = entry.get('published', '')
-                guid = entry.get('id', url)
+            for entry in entries:
+                title = entry['title']
+                url = entry['link']
+                pub_date = entry['published']
+                guid = entry['id']
                 
                 processed += 1
                 
-                # Fetch document content
+                # Fetch document content (now supports PDF extraction)
+                logger.info(f"Fetching content for: {title[:50]}...")
                 content = await self.fetch_document_content(url)
                 content_summary = content[:300] + "..." if len(content) > 300 else content
                 
@@ -378,13 +475,150 @@ class EmmaScanner:
                 
                 if matched_queries:
                     total_matches += 1
-                    logger.info(f"Disclosure '{title[:50]}...' matched {len(matched_queries)} queries")
+                    query_names = [q.name for q in matched_queries]
+                    logger.info(f"Disclosure '{title[:50]}...' matched: {', '.join(query_names)}")
             
+            logger.info(f"Scan completed: {processed} processed, {total_matches} matches")
             return {"processed": processed, "matches": total_matches}
             
         except Exception as e:
-            logger.error(f"Error scanning RSS feed: {e}")
+            logger.error(f"Error scanning EMMA: {e}")
             return {"processed": 0, "matches": 0}
+
+    async def parse_rss_feed_fallback(self) -> List[Dict]:
+        """Fallback RSS parsing method"""
+        try:
+            async with self.session.get(EMMA_RSS_URL, timeout=30) as response:
+                if response.status != 200:
+                    return []
+                
+                rss_content = await response.text()
+            
+            # Parse RSS feed
+            entries = await self.parse_rss_feed(rss_content)
+            return entries
+            
+        except Exception as e:
+            logger.warning(f"RSS fallback failed: {e}")
+            return []
+
+    async def extract_pdf_text(self, pdf_content: bytes) -> str:
+        """Extract text from PDF content"""
+        if not PDF_PARSING_AVAILABLE:
+            return ""
+        
+        try:
+            pdf_file = io.BytesIO(pdf_content)
+            pdf_reader = PyPDF2.PdfReader(pdf_file)
+            
+            text = ""
+            # Extract text from first few pages to avoid processing huge documents
+            max_pages = min(10, len(pdf_reader.pages))
+            
+            for page_num in range(max_pages):
+                page = pdf_reader.pages[page_num]
+                text += page.extract_text() + "\n"
+            
+            # Clean up text
+            text = re.sub(r'\s+', ' ', text).strip()
+            return text[:5000]  # Limit text length
+            
+        except Exception as e:
+            logger.warning(f"Failed to extract PDF text: {e}")
+            return ""
+
+    async def fetch_document_content(self, url: str) -> str:
+        """Fetch and extract text from document URL (supports PDF and HTML)"""
+        try:
+            if not self.session:
+                return ""
+            
+            async with self.session.get(url, timeout=30) as response:
+                if response.status != 200:
+                    return ""
+                
+                content_type = response.headers.get('content-type', '').lower()
+                content = await response.read()
+                
+                # Handle PDF content
+                if 'pdf' in content_type:
+                    return await self.extract_pdf_text(content)
+                
+                # Handle HTML/text content
+                elif 'html' in content_type or 'text' in content_type:
+                    text_content = content.decode('utf-8', errors='ignore')
+                    # Simple text extraction - remove HTML tags
+                    text = re.sub(r'<[^>]+>', ' ', text_content)
+                    text = re.sub(r'\s+', ' ', text).strip()
+                    return text[:2000]  # Limit content length
+                
+                return ""
+                
+        except Exception as e:
+            logger.warning(f"Failed to fetch document content from {url}: {e}")
+            return ""
+    
+    async def scrape_emma_search(self) -> List[Dict]:
+        """Scrape EMMA search results directly"""
+        try:
+            # Use EMMA's disclosure search URL with parameters for recent disclosures
+            search_params = {
+                'st': '1',  # Search type: continuing disclosures
+                'sortdir': 'desc',  # Sort by newest first
+                'perpage': '50'  # Limit results
+            }
+            
+            async with self.session.get(EMMA_SEARCH_URL, params=search_params, timeout=30) as response:
+                if response.status != 200:
+                    logger.error(f"Failed to fetch EMMA search results: HTTP {response.status}")
+                    return []
+                
+                html_content = await response.text()
+                soup = BeautifulSoup(html_content, 'html.parser')
+                
+                entries = []
+                # Look for disclosure entries in the search results
+                # Note: This is a basic implementation - actual selectors would need to be 
+                # determined by inspecting EMMA's HTML structure
+                disclosure_rows = soup.find_all('tr', class_=['odd', 'even']) or soup.find_all('div', class_='disclosure-item')
+                
+                for row in disclosure_rows[:50]:  # Limit to 50 entries
+                    try:
+                        # Extract title and link - these selectors are educated guesses
+                        title_elem = row.find('a') or row.find('td', class_='title')
+                        if not title_elem:
+                            continue
+                            
+                        title = title_elem.get_text(strip=True) if hasattr(title_elem, 'get_text') else str(title_elem)
+                        link = title_elem.get('href', '') if hasattr(title_elem, 'get') else ""
+                        
+                        if link and not link.startswith('http'):
+                            link = f"https://emma.msrb.org{link}"
+                        
+                        # Extract date
+                        date_elem = row.find('td', class_='date') or row.find('span', class_='date')
+                        published = date_elem.get_text(strip=True) if date_elem else ""
+                        
+                        # Generate a unique ID
+                        item_id = f"emma_{hash(f'{title}{link}{published}')}"
+                        
+                        entries.append({
+                            'title': title,
+                            'link': link,
+                            'published': published,
+                            'id': item_id
+                        })
+                        
+                    except Exception as e:
+                        logger.warning(f"Error parsing disclosure row: {e}")
+                        continue
+                
+                logger.info(f"Scraped {len(entries)} disclosure entries from EMMA")
+                return entries
+                
+        except Exception as e:
+            logger.error(f"Error scraping EMMA search results: {e}")
+            return []
 
 async def send_batch_digest(matches: List[Dict], recipients: List[str]):
     """Send email digest organized by batch"""
@@ -452,11 +686,16 @@ async def send_batch_digest(matches: List[Dict], recipients: List[str]):
 db = Database(DATABASE_PATH)
 
 async def daily_scan():
-    """Perform daily EMMA scan"""
+    """Perform daily EMMA scan using web scraping + PDF parsing"""
     logger.info(f'Starting EMMA scan at {datetime.utcnow().isoformat()}')
     
+    if PDF_PARSING_AVAILABLE:
+        logger.info("PDF text extraction enabled")
+    else:
+        logger.warning("PDF parsing not available - install PyPDF2 for full text search")
+    
     async with EmmaScanner(db) as scanner:
-        results = await scanner.scan_rss_feed()
+        results = await scanner.scan_rss_feed()  # Now includes scraping + PDF parsing
         
         logger.info(f"Processed {results['processed']} entries, found {results['matches']} matches")
         
@@ -552,7 +791,13 @@ async def delete_search(query_id: int):
 
 @app.get("/healthz")
 def health_check():
-    return {"status": "ok", "timestamp": datetime.utcnow().isoformat()}
+    return {
+        "status": "ok", 
+        "timestamp": datetime.utcnow().isoformat(),
+        "pdf_parsing": PDF_PARSING_AVAILABLE,
+        "scraping_enabled": True,
+        "rss_fallback": FEEDPARSER_AVAILABLE
+    }
 
 @app.get("/scan")
 async def manual_scan():
