@@ -355,10 +355,19 @@
                 <div class="match-item">
                     <div class="match-title">
                         <a href="{{ match.url }}" target="_blank" rel="noopener">{{ match.title }}</a>
+                        {% if match.relevance_score %}
+                        <span style="background: #28a745; color: white; padding: 2px 6px; border-radius: 3px; font-size: 11px; margin-left: 10px;">
+                            Relevance: {{ match.relevance_score }}%
+                        </span>
+                        {% endif %}
                     </div>
                     
                     <div class="match-meta">
                         Published: {{ match.pub_date }} | Found: {{ match.created_at[:10] }}
+                        {% if match.issuer_name %} | Issuer: {{ match.issuer_name }}{% endif %}
+                        {% if match.document_type %} | Type: {{ match.document_type }}{% endif %}
+                        {% if match.file_size_kb %} | Size: {{ match.file_size_kb }}KB{% endif %}
+                        {% if match.pages_processed %} | Pages: {{ match.pages_processed }}{% endif %}
                     </div>
                     
                     {% if match.batch_names %}
@@ -381,10 +390,55 @@
                     </div>
                     {% endif %}
                     
-                    {% if match.content_summary %}
-                    <div class="content-preview">
-                        <strong>Content preview:</strong><br>
-                        {{ match.content_summary }}
+                    {% if match.matched_terms %}
+                    <div class="matched-terms">
+                        <strong>Keywords found:</strong>
+                        {% for term in match.matched_terms %}
+                        <span style="background: #ffeaa7; color: #2d3436; padding: 3px 6px; border-radius: 3px; margin-right: 5px; font-size: 12px;">{{ term }}</span>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+                    
+                    {% if match.pages_with_matches %}
+                    <div style="margin: 10px 0; font-size: 14px;">
+                        <strong>📄 Found on pages:</strong> 
+                        {% for page in match.pages_with_matches|sort %}
+                            {% if page %}
+                            <span style="background: #74b9ff; color: white; padding: 2px 6px; border-radius: 3px; margin-right: 5px; font-size: 11px;">
+                                Page {{ page }}
+                            </span>
+                            {% endif %}
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+                    
+                    {% if match.match_locations %}
+                    <div class="match-details" style="background: #f8f9fa; padding: 15px; border-radius: 4px; border-left: 4px solid #74b9ff; margin-top: 10px;">
+                        <strong>🎯 Specific Matches:</strong>
+                        {% for location in match.match_locations[:3] %}  <!-- Show top 3 matches -->
+                        <div style="margin: 8px 0; padding: 8px; background: white; border-radius: 3px; border: 1px solid #dee2e6;">
+                            <div style="font-size: 12px; color: #666; margin-bottom: 4px;">
+                                <strong>{{ location.term }}</strong>
+                                {% if location.page_number %} • Page {{ location.page_number }}{% endif %}
+                                {% if location.sentence_number %} • Sentence {{ location.sentence_number }}{% endif %}
+                            </div>
+                            {% if location.sentence %}
+                            <div style="font-style: italic; color: #333; line-height: 1.4;">
+                                "{{ location.sentence|truncate(150) }}"
+                            </div>
+                            {% endif %}
+                            {% if location.context and location.context != location.sentence %}
+                            <div style="font-size: 13px; color: #666; margin-top: 6px; line-height: 1.3;">
+                                Context: {{ location.context|truncate(200) }}
+                            </div>
+                            {% endif %}
+                        </div>
+                        {% endfor %}
+                        {% if match.match_locations|length > 3 %}
+                        <div style="margin-top: 8px; font-size: 12px; color: #666;">
+                            ... and {{ match.match_locations|length - 3 }} more matches in this document
+                        </div>
+                        {% endif %}
                     </div>
                     {% endif %}
                 </div>
@@ -592,7 +646,11 @@
                     <li><strong>Any Terms (OR):</strong> downgrade, default, bankruptcy finds documents containing any of those terms</li>
                 </ul>
                 <div style="margin-top: 15px; padding: 10px; background: #d1ecf1; border-radius: 4px; font-size: 14px;">
-                    <strong>📄 PDF Content Search:</strong> This system extracts text from PDF disclosure documents, allowing you to search within the actual document content, not just titles.
+                    <strong>🚀 Queue-Based Processing System:</strong> This system uses priority processing for immediate alerts plus background queues for comprehensive coverage.
+                    <br><small>✓ Peak hours (9AM): Priority documents processed immediately ✓ Off-peak (2AM, 6AM): Background queue processing ✓ Resource monitoring ✓ Cost optimization</small>
+                    <div style="margin-top: 8px; font-size: 12px; color: #666;">
+                        <strong>Smart processing:</strong> Urgent documents (bankruptcy, fraud) → immediate | Large files → queued | All documents eventually processed with full precision
+                    </div>
                 </div>
             </div>
         </div>
