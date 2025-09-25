@@ -1,0 +1,20 @@
+# Resend
+RESEND_API_KEY=re_XXXXXXXXXXXX
+FROM_EMAIL=alerts@yourdomain.com
+ALERT_EMAILS=you@example.com,other@example.com
+
+
+# Postgres (Railway provides DATABASE_URL)
+DATABASE_URL=postgresql://user:pass@host:5432/dbname
+
+
+# EMMA RSS feed (default is continuing disclosures)
+EMMA_RSS_URL=https://emma.msrb.org/RSS/CD/rss.xml
+
+
+# Optional: how many days to keep matches
+RETENTION_DAYS=30
+
+
+# Optional: run initial scan on startup? true/false
+RUN_INITIAL_SCAN=true
