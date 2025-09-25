@@ -1,109 +1,73 @@
-# app.py — single-file EMMA Monitor
-continue
+import os
+async def send_resend_email(matches, recipients):
+if not matches or not recipients: return
+html = f"<h2>EMMA Daily Digest — {len(matches)} matches</h2><ul>"
+for m in matches:
+html += f"<li><a href='{m['url']}'>{m['title']}</a> — matched_terms: {', '.join(m.get('matched_terms',[]))}</li>"
+html += '</ul>'
 
 
-text_to_search = title or ''
-matched = False
-matched_terms = []
-
-
-# If configured, fetch document body to search inside documents too
-if FETCH_DOCS_ON_SCAN:
-doc_text = fetch_url_text(link)
-text_to_search = (title or '') + '\n\n' + (doc_text or '')
-
-
-# Evaluate DAILY_QUERIES from env if provided
-daily_queries_json = os.getenv('DAILY_QUERIES_JSON')
-if daily_queries_json:
+payload = {
+'from': FROM_EMAIL,
+'to': recipients,
+'subject': f'EMMA Daily Digest: {len(matches)} matches',
+'html': html
+}
+headers = {'Authorization': f'Bearer {RESEND_API_KEY}','Content-Type':'application/json'}
 try:
-daily_queries = json.loads(daily_queries_json)
-except Exception:
-daily_queries = []
-
-
-for q in daily_queries:
-if match_text(text_to_search, q):
-matched = True
-matched_terms.append(q)
-
-
-# Insert metadata; we always save the row so the front end can search later.
-insert_metadata(title, link, matched=matched, matched_terms=matched_terms)
-
-
-if matched:
-matches.append({
-'title': title,
-'url': link,
-'matched_terms': matched_terms,
-})
-
-
-SEEN_URLS.add(link)
-
-
-return matches
-
-
-# --- Scheduler ---
-
-
-scheduler = BackgroundScheduler()
-
-
-
-
-def daily_job():
-print('Daily scan started', datetime.utcnow().isoformat())
-matches = scan_once()
-
-
-# Send digest for matches
-if matches and RESEND_API_KEY and FROM_EMAIL and ALERT_EMAILS:
-send_resend_email(matches, ALERT_EMAILS)
-
-
-deleted = cleanup_old(RETENTION_DAYS)
-print('Cleanup deleted rows:', deleted)
-
-
-
-
-# set to run once every 24 hours
-scheduler.add_job(daily_job, 'interval', days=1, next_run_time=None)
-scheduler.start()
-# ensure scheduler is shut down on exit
-atexit.register(lambda: scheduler.shutdown())
-
-
-# Optionally run initial scan on startup
-if RUN_INITIAL_SCAN:
-try:
-# small delay to let env/DB come up on some platforms
-time.sleep(1)
-init_db()
-daily_job()
+r = await asyncio.to_thread(requests.post, 'https://api.resend.com/emails', json=payload, headers=headers, timeout=30)
+r.raise_for_status()
 except Exception as e:
-print('Initial scan failed:', e)
-else:
-init_db()
+print('Resend send failed:', e)
 
 
-# --- FastAPI app ---
+# --- FastAPI ---
 app = FastAPI()
-
-
+templates = Jinja2Templates(directory='templates')
 
 
 @app.get('/', response_class=HTMLResponse)
-def home(request: Request):
-recent = get_recent_matches(days=7)
-return templates.TemplateResponse('index.html', {"request": request, "matches": recent, "query": None})
-
-
+async def home(request: Request):
+recent = await get_recent_matches(days=7)
+return templates.TemplateResponse('index.html', {'request':request,'matches':recent,'query':None})
 
 
 @app.post('/search', response_class=HTMLResponse)
-def search(request: Request, query: str = Form(...)):
-# search metadata in DB (title + matched_terms); optionally re-fetch documen
+async def search(request: Request, query: str = Form(...)):
+recent = await get_recent_matches(days=30)
+matches = [r for r in recent if match_text(r.title, query) or (r.matched_terms and any(match_text(t, query) for t in r.matched_terms))]
+return templates.TemplateResponse('index.html', {'request':request,'matches':matches,'query':query})
+
+
+@app.get('/healthz')
+def healthz():
+return {'status':'ok'}
+
+
+# --- Scheduler ---
+scheduler = AsyncIOScheduler()
+scheduler.add_job(lambda: asyncio.create_task(daily_job()), 'interval', days=1, next_run_time=None)
+scheduler.start()
+
+
+async def daily_job():
+print('Running daily EMMA scan —', datetime.utcnow().isoformat())
+matches = await scan_once()
+if matches and RESEND_API_KEY and FROM_EMAIL and ALERT_EMAILS:
+await send_resend_email(matches, ALERT_EMAILS)
+deleted = await cleanup_old(RETENTION_DAYS)
+print('Cleanup removed rows:', deleted)
+
+
+# --- Startup ---
+@app.on_event('startup')
+async def startup():
+await init_db()
+if RUN_INITIAL_SCAN:
+await daily_job()
+
+
+# --- Local run ---
+if __name__ == '__main__':
+import uvicorn
+uvicorn.run('app:app', host='0.0.0.0', port=int(os.getenv('PORT',8000)), reload=True)
