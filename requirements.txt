@@ -4,7 +4,8 @@ feedparser
 requests
 beautifulsoup4
 pdfplumber
-psycopg2-binary
+SQLAlchemy[asyncio]
+asyncpg
 APScheduler
 Jinja2
 python-dotenv
