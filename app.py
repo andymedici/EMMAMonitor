@@ -79,12 +79,17 @@ class ResourceMonitor:
         self.operation_name = operation_name
         self.start_time = time.time()
         
-        # Get initial system state
-        process = psutil.Process()
-        self.start_memory = process.memory_info().rss / 1024 / 1024  # MB
-        self.start_cpu = process.cpu_percent()
-        
-        logger.info(f"🔄 Starting {operation_name} | Memory: {self.start_memory:.1f}MB | CPU: {self.start_cpu:.1f}%")
+        try:
+            # Get initial system state
+            process = psutil.Process()
+            self.start_memory = process.memory_info().rss / 1024 / 1024  # MB
+            self.start_cpu = process.cpu_percent()
+            
+            logger.info(f"🔄 Starting {operation_name} | Memory: {self.start_memory:.1f}MB | CPU: {self.start_cpu:.1f}%")
+        except Exception as e:
+            logger.warning(f"Could not get system info: {e}")
+            self.start_memory = 0
+            self.start_cpu = 0
         
         return {
             "start_time": self.start_time,
@@ -1100,10 +1105,6 @@ class EmmaScanner:
     
     def should_process_immediately(self, title: str, estimated_size_kb: int, total_pages: int) -> bool:
         """Determine if document should be processed immediately or queued"""
-        # Process immediately if:
-        # 1. Small file and reasonable page count
-        # 2. Or has priority keywords that suggest urgency
-        
         if estimated_size_kb > LARGE_FILE_THRESHOLD_KB or total_pages > COMPLEX_DOC_PAGE_THRESHOLD:
             return False
         
@@ -1124,6 +1125,10 @@ class EmmaScanner:
                 'sortdir': 'desc',  # Sort by newest first
                 'perpage': '50'  # Limit results
             }
+            
+            if not self.session:
+                logger.error("No session available for scraping")
+                return []
             
             async with self.session.get(EMMA_SEARCH_URL, params=search_params, timeout=30) as response:
                 if response.status != 200:
@@ -1620,11 +1625,9 @@ async def background_processing():
         # Send additional email if background processing found matches
         if results['matches'] > 0 and RESEND_API_KEY and FROM_EMAIL and ALERT_EMAILS:
             recent_matches = await db.get_recent_matches(days=1)
-            background_matches = [m for m in recent_matches if 'background' in str(m).lower()]
-            if background_matches:
+            if recent_matches:
                 # Send a separate digest for background finds
-                subject_prefix = "EMMA Background Digest"
-                await send_batch_digest(background_matches, ALERT_EMAILS)
+                await send_batch_digest(recent_matches, ALERT_EMAILS)
     
     return results
 
@@ -1650,7 +1653,7 @@ async def lifespan(app: FastAPI):
     # Startup
     scheduler = AsyncIOScheduler()
     
-    # Peak processing - 9 AM daily (when reporters start work)
+    # Peak processing - 9 AM daily
     scheduler.add_job(
         daily_peak_scan,
         'cron',
@@ -1659,7 +1662,7 @@ async def lifespan(app: FastAPI):
         id='peak_scan'
     )
     
-    # Background processing - 2 AM and 6 AM (off-peak hours)
+    # Background processing - 2 AM and 6 AM
     scheduler.add_job(
         background_processing,
         'cron',
