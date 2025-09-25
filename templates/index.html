@@ -1,59 +1,640 @@
-<!doctype html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-    <title>EMMA Monitor — Search</title>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EMMA Municipal Bond Monitor</title>
     <style>
-      body {
-        font-family: system-ui, -apple-system, Roboto, Arial;
-        padding: 24px;
-      }
-      .card {
-        border: 1px solid #eee;
-        padding: 12px;
-        border-radius: 8px;
-        margin-bottom: 8px;
-      }
-      form {
-        margin-bottom: 20px;
-      }
-      input[type=text] {
-        padding: 8px;
-        width: 300px;
-      }
-      button {
-        padding: 8px 12px;
-      }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+            color: #333;
+        }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            padding: 30px;
+        }
+        h1 {
+            color: #2c5aa0;
+            border-bottom: 3px solid #2c5aa0;
+            padding-bottom: 10px;
+            margin-bottom: 30px;
+        }
+        .tabs {
+            border-bottom: 2px solid #e9ecef;
+            margin-bottom: 30px;
+        }
+        .tab-button {
+            background: none;
+            border: none;
+            padding: 12px 24px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 500;
+            color: #666;
+            border-bottom: 3px solid transparent;
+            margin-right: 5px;
+        }
+        .tab-button.active {
+            color: #2c5aa0;
+            border-bottom-color: #2c5aa0;
+        }
+        .tab-content {
+            display: none;
+        }
+        .tab-content.active {
+            display: block;
+        }
+        .form-section {
+            background: #f8f9fa;
+            padding: 25px;
+            border-radius: 6px;
+            border: 1px solid #dee2e6;
+            margin-bottom: 30px;
+        }
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-bottom: 15px;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 600;
+            color: #333;
+        }
+        .form-group input, .form-group select, .form-group textarea {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-size: 14px;
+            box-sizing: border-box;
+        }
+        .form-group textarea {
+            height: 80px;
+            resize: vertical;
+        }
+        .search-type-help {
+            font-size: 12px;
+            color: #666;
+            margin-top: 5px;
+            padding: 8px;
+            background: #e9ecef;
+            border-radius: 3px;
+        }
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            text-decoration: none;
+            display: inline-block;
+            text-align: center;
+        }
+        .btn-primary {
+            background: #2c5aa0;
+            color: white;
+        }
+        .btn-primary:hover {
+            background: #1e3f73;
+        }
+        .btn-danger {
+            background: #dc3545;
+            color: white;
+        }
+        .btn-danger:hover {
+            background: #c82333;
+        }
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+        }
+        .btn-secondary:hover {
+            background: #545b62;
+        }
+        .search-list {
+            margin-bottom: 30px;
+        }
+        .search-item {
+            border: 1px solid #dee2e6;
+            border-radius: 6px;
+            padding: 20px;
+            margin-bottom: 15px;
+            background: white;
+        }
+        .search-item.inactive {
+            opacity: 0.6;
+            background: #f8f9fa;
+        }
+        .search-header {
+            display: flex;
+            justify-content: between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        .search-name {
+            font-weight: 600;
+            color: #2c5aa0;
+            font-size: 16px;
+        }
+        .search-batch {
+            background: #e9ecef;
+            color: #495057;
+            padding: 4px 8px;
+            border-radius: 3px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        .search-details {
+            margin: 10px 0;
+            font-size: 14px;
+        }
+        .search-query {
+            background: #f1f3f4;
+            padding: 8px;
+            border-radius: 3px;
+            font-family: monospace;
+            margin: 5px 0;
+        }
+        .search-type {
+            color: #666;
+            font-size: 12px;
+            text-transform: uppercase;
+            font-weight: bold;
+        }
+        .search-actions {
+            margin-top: 15px;
+        }
+        .search-actions .btn {
+            margin-right: 10px;
+            font-size: 12px;
+            padding: 6px 12px;
+        }
+        .batch-section {
+            margin-bottom: 30px;
+        }
+        .batch-header {
+            background: #2c5aa0;
+            color: white;
+            padding: 12px 20px;
+            border-radius: 6px 6px 0 0;
+            font-weight: 600;
+            font-size: 16px;
+        }
+        .batch-items {
+            border: 1px solid #dee2e6;
+            border-top: none;
+            border-radius: 0 0 6px 6px;
+            padding: 15px;
+            background: #f8f9fa;
+        }
+        .match-item {
+            border: 1px solid #dee2e6;
+            border-radius: 6px;
+            padding: 20px;
+            margin-bottom: 20px;
+            background: #ffffff;
+            transition: box-shadow 0.2s;
+        }
+        .match-item:hover {
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        }
+        .match-title {
+            font-size: 18px;
+            margin-bottom: 10px;
+        }
+        .match-title a {
+            color: #2c5aa0;
+            text-decoration: none;
+            font-weight: 600;
+        }
+        .match-title a:hover {
+            text-decoration: underline;
+        }
+        .match-meta {
+            font-size: 14px;
+            color: #666;
+            margin-bottom: 10px;
+        }
+        .matched-searches {
+            margin-bottom: 10px;
+        }
+        .matched-searches span {
+            background: #d4edda;
+            color: #155724;
+            padding: 4px 8px;
+            border-radius: 3px;
+            margin-right: 5px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        .batch-tags {
+            margin-bottom: 10px;
+        }
+        .batch-tags span {
+            background: #fff3cd;
+            color: #856404;
+            padding: 4px 8px;
+            border-radius: 3px;
+            margin-right: 5px;
+            font-size: 11px;
+            font-weight: bold;
+        }
+        .content-preview {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 4px;
+            border-left: 4px solid #2c5aa0;
+            font-size: 14px;
+            line-height: 1.4;
+            color: #555;
+        }
+        .no-results {
+            text-align: center;
+            padding: 60px 20px;
+            color: #666;
+            font-size: 18px;
+        }
+        .search-box {
+            margin-bottom: 30px;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 6px;
+            border: 1px solid #dee2e6;
+        }
+        .search-box input {
+            width: 70%;
+            padding: 12px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-size: 16px;
+        }
+        .search-box button {
+            padding: 12px 24px;
+            background: #2c5aa0;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-left: 10px;
+        }
+        .edit-form {
+            display: none;
+            background: #e9ecef;
+            padding: 15px;
+            border-radius: 4px;
+            margin-top: 15px;
+        }
+        .edit-form.active {
+            display: block;
+        }
+        @media (max-width: 768px) {
+            .container {
+                padding: 15px;
+                margin: 10px;
+            }
+            .form-row {
+                grid-template-columns: 1fr;
+            }
+            .search-box input {
+                width: 100%;
+                margin-bottom: 10px;
+            }
+            .search-box button {
+                width: 100%;
+                margin-left: 0;
+            }
+        }
     </style>
-  </head>
-  <body>
-    <h1>EMMA Monitor</h1>
-
-    <form method="post" action="/search">
-      <input type="text" name="query" placeholder="Search..." value="{{ query or '' }}" />
-      <button type="submit">Search</button>
-    </form>
-
-    {% if query %}
-      <h2>Results for: {{ query }}</h2>
-    {% else %}
-      <h2>Recent Matches (last 7 days)</h2>
-    {% endif %}
-
-    {% if matches|length == 0 %}
-      <p>No results.</p>
-    {% else %}
-      {% for m in matches %}
-        <div class="card">
-          <div>
-            <a href="{{ m.url }}" target="_blank">{{ m.title }}</a>
-          </div>
-          <div><small>{{ m.matched_at }}</small></div>
-          {% if m.matched_terms %}
-            <div><small>Matched terms: {{ m.matched_terms | join(', ') }}</small></div>
-          {% endif %}
+</head>
+<body>
+    <div class="container">
+        <h1>🏛️ EMMA Municipal Bond Monitor</h1>
+        
+        <div class="tabs">
+            <button class="tab-button active" onclick="switchTab(event, 'results')">Recent Matches</button>
+            <button class="tab-button" onclick="switchTab(event, 'searches')">Manage Searches</button>
+            <button class="tab-button" onclick="switchTab(event, 'add-search')">Add New Search</button>
         </div>
-      {% endfor %}
-    {% endif %}
-  </body>
+
+        <!-- Results Tab -->
+        <div id="results" class="tab-content active">
+            <div class="search-box">
+                <form method="post" action="/search">
+                    <input type="text" name="query" placeholder="Search existing disclosures..." value="{{ query or '' }}">
+                    <button type="submit">Search</button>
+                </form>
+            </div>
+
+            {% if query %}
+            <div class="results-header">
+                <h3>Search results for "{{ query }}" — {{ matches|length }} matches found</h3>
+            </div>
+            {% else %}
+            <div class="results-header">
+                <h3>Recent matches — {{ matches|length }} items from the last 7 days</h3>
+            </div>
+            {% endif %}
+
+            {% if matches %}
+                {% for match in matches %}
+                <div class="match-item">
+                    <div class="match-title">
+                        <a href="{{ match.url }}" target="_blank" rel="noopener">{{ match.title }}</a>
+                    </div>
+                    
+                    <div class="match-meta">
+                        Published: {{ match.pub_date }} | Found: {{ match.created_at[:10] }}
+                    </div>
+                    
+                    {% if match.batch_names %}
+                    <div class="batch-tags">
+                        <strong>Batches:</strong>
+                        {% for batch in match.batch_names %}
+                            {% if batch %}
+                            <span>{{ batch }}</span>
+                            {% endif %}
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+                    
+                    {% if match.matched_searches %}
+                    <div class="matched-searches">
+                        <strong>Matched searches:</strong>
+                        {% for search in match.matched_searches %}
+                        <span>{{ search }}</span>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+                    
+                    {% if match.content_summary %}
+                    <div class="content-preview">
+                        <strong>Content preview:</strong><br>
+                        {{ match.content_summary }}
+                    </div>
+                    {% endif %}
+                </div>
+                {% endfor %}
+            {% else %}
+                <div class="no-results">
+                    {% if query %}
+                    No matches found for your search query.
+                    {% else %}
+                    No recent matches found. Add some search queries and the system will check for new disclosures daily.
+                    {% endif %}
+                </div>
+            {% endif %}
+        </div>
+
+        <!-- Manage Searches Tab -->
+        <div id="searches" class="tab-content">
+            <h3>Your Active Searches</h3>
+            
+            {% if batches %}
+                {% for batch in batches %}
+                <div class="batch-section">
+                    <div class="batch-header">📁 {{ batch }}</div>
+                    <div class="batch-items">
+                        {% for search in search_queries %}
+                            {% if search.batch_name == batch %}
+                            <div class="search-item {% if not search.active %}inactive{% endif %}">
+                                <div class="search-header">
+                                    <span class="search-name">{{ search.name }}</span>
+                                    <span class="search-type">{{ search.search_type }}</span>
+                                </div>
+                                <div class="search-details">
+                                    <div class="search-query">{{ search.query }}</div>
+                                    <div style="margin-top: 5px; font-size: 12px; color: #666;">
+                                        Status: {% if search.active %}Active{% else %}Inactive{% endif %}
+                                    </div>
+                                </div>
+                                <div class="search-actions">
+                                    <button class="btn btn-secondary" onclick="toggleEdit({{ search.id }})">Edit</button>
+                                    <form method="post" action="/delete-search/{{ search.id }}" style="display: inline;" onsubmit="return confirm('Are you sure you want to delete this search?')">
+                                        <button type="submit" class="btn btn-danger">Delete</button>
+                                    </form>
+                                </div>
+                                
+                                <div id="edit-{{ search.id }}" class="edit-form">
+                                    <form method="post" action="/update-search/{{ search.id }}">
+                                        <div class="form-row">
+                                            <div class="form-group">
+                                                <label>Search Name</label>
+                                                <input type="text" name="name" value="{{ search.name }}" required>
+                                            </div>
+                                            <div class="form-group">
+                                                <label>Batch Name</label>
+                                                <input type="text" name="batch_name" value="{{ search.batch_name }}">
+                                            </div>
+                                        </div>
+                                        <div class="form-group">
+                                            <label>Search Query</label>
+                                            <textarea name="query" required>{{ search.query }}</textarea>
+                                        </div>
+                                        <div class="form-row">
+                                            <div class="form-group">
+                                                <label>Search Type</label>
+                                                <select name="search_type" required>
+                                                    <option value="exact" {% if search.search_type == 'exact' %}selected{% endif %}>Exact Phrase</option>
+                                                    <option value="all" {% if search.search_type == 'all' %}selected{% endif %}>All Terms (AND)</option>
+                                                    <option value="any" {% if search.search_type == 'any' %}selected{% endif %}>Any Terms (OR)</option>
+                                                </select>
+                                            </div>
+                                            <div class="form-group">
+                                                <label>
+                                                    <input type="checkbox" name="active" {% if search.active %}checked{% endif %}> Active
+                                                </label>
+                                            </div>
+                                        </div>
+                                        <button type="submit" class="btn btn-primary">Update Search</button>
+                                        <button type="button" class="btn btn-secondary" onclick="toggleEdit({{ search.id }})">Cancel</button>
+                                    </form>
+                                </div>
+                            </div>
+                            {% endif %}
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endfor %}
+            {% endif %}
+            
+            <!-- Unbatched searches -->
+            {% set unbatched_searches = search_queries | selectattr('batch_name', 'equalto', '') | list %}
+            {% if unbatched_searches %}
+            <div class="batch-section">
+                <div class="batch-header">📄 Individual Searches</div>
+                <div class="batch-items">
+                    {% for search in unbatched_searches %}
+                    <div class="search-item {% if not search.active %}inactive{% endif %}">
+                        <div class="search-header">
+                            <span class="search-name">{{ search.name }}</span>
+                            <span class="search-type">{{ search.search_type }}</span>
+                        </div>
+                        <div class="search-details">
+                            <div class="search-query">{{ search.query }}</div>
+                            <div style="margin-top: 5px; font-size: 12px; color: #666;">
+                                Status: {% if search.active %}Active{% else %}Inactive{% endif %}
+                            </div>
+                        </div>
+                        <div class="search-actions">
+                            <button class="btn btn-secondary" onclick="toggleEdit({{ search.id }})">Edit</button>
+                            <form method="post" action="/delete-search/{{ search.id }}" style="display: inline;" onsubmit="return confirm('Are you sure you want to delete this search?')">
+                                <button type="submit" class="btn btn-danger">Delete</button>
+                            </form>
+                        </div>
+                        
+                        <div id="edit-{{ search.id }}" class="edit-form">
+                            <form method="post" action="/update-search/{{ search.id }}">
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label>Search Name</label>
+                                        <input type="text" name="name" value="{{ search.name }}" required>
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Batch Name</label>
+                                        <input type="text" name="batch_name" value="{{ search.batch_name }}">
+                                    </div>
+                                </div>
+                                <div class="form-group">
+                                    <label>Search Query</label>
+                                    <textarea name="query" required>{{ search.query }}</textarea>
+                                </div>
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label>Search Type</label>
+                                        <select name="search_type" required>
+                                            <option value="exact" {% if search.search_type == 'exact' %}selected{% endif %}>Exact Phrase</option>
+                                            <option value="all" {% if search.search_type == 'all' %}selected{% endif %}>All Terms (AND)</option>
+                                            <option value="any" {% if search.search_type == 'any' %}selected{% endif %}>Any Terms (OR)</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-group">
+                                        <label>
+                                            <input type="checkbox" name="active" {% if search.active %}checked{% endif %}> Active
+                                        </label>
+                                    </div>
+                                </div>
+                                <button type="submit" class="btn btn-primary">Update Search</button>
+                                <button type="button" class="btn btn-secondary" onclick="toggleEdit({{ search.id }})">Cancel</button>
+                            </form>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+
+            {% if not search_queries %}
+            <div class="no-results">
+                No searches configured yet. Add your first search to get started!
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- Add Search Tab -->
+        <div id="add-search" class="tab-content">
+            <h3>Add New Search</h3>
+            
+            <div class="form-section">
+                <form method="post" action="/add-search">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="name">Search Name *</label>
+                            <input type="text" id="name" name="name" placeholder="e.g., Municipal Bankruptcies" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="batch_name">Batch Name (optional)</label>
+                            <input type="text" id="batch_name" name="batch_name" placeholder="e.g., Credit Analysis">
+                            <div style="font-size: 12px; color: #666; margin-top: 5px;">Group related searches for better organization</div>
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="query">Search Query *</label>
+                        <textarea id="query" name="query" placeholder="Enter your search terms..." required></textarea>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="search_type">Search Type *</label>
+                        <select id="search_type" name="search_type" required onchange="updateSearchHelp()">
+                            <option value="exact">Exact Phrase</option>
+                            <option value="all">All Terms (AND)</option>
+                            <option value="any">Any Terms (OR)</option>
+                        </select>
+                        <div id="search-help" class="search-type-help">
+                            <strong>Exact Phrase:</strong> Finds documents containing the exact phrase you specify.
+                        </div>
+                    </div>
+                    
+                    <button type="submit" class="btn btn-primary">Add Search</button>
+                </form>
+            </div>
+            
+            <div style="margin-top: 30px; padding: 20px; background: #e9ecef; border-radius: 6px;">
+                <h4>Search Type Examples:</h4>
+                <ul style="margin-bottom: 0;">
+                    <li><strong>Exact Phrase:</strong> "budget deficit" finds only documents with that exact phrase</li>
+                    <li><strong>All Terms (AND):</strong> bankruptcy, municipal finds documents containing both "bankruptcy" AND "municipal"</li>
+                    <li><strong>Any Terms (OR):</strong> downgrade, default, bankruptcy finds documents containing any of those terms</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function switchTab(event, tabName) {
+            // Hide all tab contents
+            var tabContents = document.getElementsByClassName('tab-content');
+            for (var i = 0; i < tabContents.length; i++) {
+                tabContents[i].classList.remove('active');
+            }
+            
+            // Remove active class from all tab buttons
+            var tabButtons = document.getElementsByClassName('tab-button');
+            for (var i = 0; i < tabButtons.length; i++) {
+                tabButtons[i].classList.remove('active');
+            }
+            
+            // Show the selected tab content and mark button as active
+            document.getElementById(tabName).classList.add('active');
+            event.currentTarget.classList.add('active');
+        }
+        
+        function toggleEdit(searchId) {
+            var editForm = document.getElementById('edit-' + searchId);
+            editForm.classList.toggle('active');
+        }
+        
+        function updateSearchHelp() {
+            var searchType = document.getElementById('search_type').value;
+            var helpDiv = document.getElementById('search-help');
+            
+            switch(searchType) {
+                case 'exact':
+                    helpDiv.innerHTML = '<strong>Exact Phrase:</strong> Finds documents containing the exact phrase you specify. Use this for specific terms like "Chapter 9 bankruptcy" or "pension obligations".';
+                    break;
+                case 'all':
+                    helpDiv.innerHTML = '<strong>All Terms (AND):</strong> Finds documents containing ALL of the terms you specify (separated by commas). Use this when you want documents about multiple related topics, like "budget, deficit, shortfall".';
+                    break;
+                case 'any':
+                    helpDiv.innerHTML = '<strong>Any Terms (OR):</strong> Finds documents containing ANY of the terms you specify (separated by commas). Use this for casting a wider net, like "bankruptcy, default, distress, insolvent".';
+                    break;
+            }
+        }
+    </script>
+</body>
 </html>
