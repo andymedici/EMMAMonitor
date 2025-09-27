@@ -2089,7 +2089,7 @@ class EmmaScanner:
             
             return {"processed": 0, "matches": 0, "queued": 0}
 
-   async def process_background_queue(self, max_items: int = 20) -> Dict[str, int]:
+       async def process_background_queue(self, max_items: int = 20) -> Dict[str, int]:
             if self.resource_monitor:
                 self.resource_monitor.start_monitoring("enhanced_background_processing")
     
