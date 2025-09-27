@@ -2102,4 +2102,5 @@ class EmmaScanner:
                 logger.info("No documents in background queue")
                 return {"processed": 0, "matches": 0, "errors": 0}
             
-            logger.info(f"Enhanced background processing: {len(ready_docs)} documents
+            logger.info(f"Enhanced background processing: {len(ready_docs)} documents")
+
