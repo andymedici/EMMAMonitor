@@ -2089,18 +2089,17 @@ class EmmaScanner:
             
             return {"processed": 0, "matches": 0, "queued": 0}
 
-    async def process_background_queue(self, max_items: int = 20) -> Dict[str, int]:
-        if self.resource_monitor:
-            self.resource_monitor.start_monitoring("enhanced_background_processing")
+   async def process_background_queue(self, max_items: int = 20) -> Dict[str, int]:
+    if self.resource_monitor:
+        self.resource_monitor.start_monitoring("enhanced_background_processing")
+    
+    try:
+        await self._ensure_healthy_session()
         
-        try:
-            await self._ensure_healthy_session()
-            
-            ready_docs = await self.processing_queue.get_ready_documents(priority=2, limit=max_items)
-            
-            if not ready_docs:
-                logger.info("No documents in background queue")
-                return {"processed": 0, "matches": 0, "errors": 0}
-            
-            logger.info(f"Enhanced background processing: {len(ready_docs)} documents")
-
+        ready_docs = await self.processing_queue.get_ready_documents(priority=2, limit=max_items)
+        
+        if not ready_docs:
+            logger.info("No documents in background queue")
+            return {"processed": 0, "matches": 0, "errors": 0}
+        
+        logger.info(f"Enhanced background processing: {len(ready_docs)} documents")
