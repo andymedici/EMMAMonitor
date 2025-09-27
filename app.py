@@ -2103,3 +2103,26 @@ class EmmaScanner:
             return {"processed": 0, "matches": 0, "errors": 0}
         
         logger.info(f"Enhanced background processing: {len(ready_docs)} documents")
+        # Add your document processing logic here
+            processed = 0
+            matches = 0
+            errors = 0
+            
+            # Process the documents (add your actual logic here)
+            for doc in ready_docs:
+                try:
+                    # Your document processing code goes here
+                    processed += 1
+                except Exception as doc_error:
+                    logger.error(f"Error processing document: {doc_error}")
+                    errors += 1
+            
+            return {"processed": processed, "matches": matches, "errors": errors}
+            
+        except Exception as e:
+            logger.error(f"Error in background processing: {e}")
+            return {"processed": 0, "matches": 0, "errors": 1}
+        
+        finally:
+            if self.resource_monitor:
+                self.resource_monitor.stop_monitoring("enhanced_background_processing")
