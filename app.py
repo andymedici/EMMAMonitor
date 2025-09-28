@@ -2390,7 +2390,7 @@ async def dashboard(request: Request):
             "error": str(e)
         })
 
-@app.post("/add_query")
+@app.post("/queries")
 async def add_search_query(
     name: str = Form(...),
     query: str = Form(...),
