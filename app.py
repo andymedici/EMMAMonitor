@@ -2431,7 +2431,7 @@ async def delete_search_query(query_id: int):
         logger.error(f"Error deleting query: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/run_scan")
+@app.post("/scan")
 async def manual_scan():
     try:
         async with EmmaScanner(db) as scanner:
@@ -2453,7 +2453,7 @@ async def manual_scan():
             "error": str(e)
         }, status_code=500)
 
-@app.post("/process_background")
+@app.post("/background")
 async def manual_background_processing():
     try:
         async with EmmaScanner(db) as scanner:
