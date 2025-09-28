@@ -1159,7 +1159,7 @@ class EmmaScanner:
             error
         )
     
-    async def _make_request(self, method: str, url: str, **kwargs) -> aiohttp.ClientResponse:
+    async def _make_request(self, method: str, url: str, skip_session_check: bool = False, **kwargs) -> aiohttp.ClientResponse:
         max_retries = 3
         base_delay = 2
         
@@ -1167,7 +1167,8 @@ class EmmaScanner:
             start_time = time.time()
             
             try:
-                await self._ensure_healthy_session()
+                if not skip_session_check:
+                    await self._ensure_healthy_session()
                 
                 if attempt > 0:
                     delay = base_delay * (2 ** attempt) + random.uniform(1, 3)
@@ -1229,13 +1230,13 @@ class EmmaScanner:
         logger.info(f"Establishing EMMA session: {self.session_state.session_id}")
         
         try:
-            homepage_response = await self._make_request('GET', "https://emma.msrb.org/")
+            homepage_response = await self._make_request('GET', "https://emma.msrb.org/", skip_session_check=True)
             
             if homepage_response.status == 200:
                 homepage_content = await homepage_response.text()
                 logger.info(f"EMMA homepage accessed: {len(homepage_content)} chars")
                 
-                search_response = await self._make_request('GET', EMMA_SEARCH_URL)
+                search_response = await self._make_request('GET', EMMA_SEARCH_URL, skip_session_check=True)
                 
                 if search_response.status == 200:
                     content = await search_response.text()
@@ -1287,7 +1288,7 @@ class EmmaScanner:
             try:
                 logger.info(f"Trying alternative {i+1}/{len(alternative_urls)}: {url}")
                 
-                response = await self._make_request('GET', url)
+                response = await self._make_request('GET', url, skip_session_check=True)
                 
                 if response.status == 200:
                     content = await response.text()
@@ -1392,7 +1393,7 @@ class EmmaScanner:
             logger.info("Strategy 4: Delayed direct access")
             await asyncio.sleep(random.uniform(8, 15))
             
-            retry_response = await self._make_request('GET', EMMA_SEARCH_URL)
+            retry_response = await self._make_request('GET', EMMA_SEARCH_URL, skip_session_check=True)
             if retry_response.status == 200:
                 retry_content = await retry_response.text()
                 if self._is_search_page(retry_content):
@@ -1453,9 +1454,9 @@ class EmmaScanner:
             logger.info(f"Submitting terms form to: {submit_url}")
             
             if method == 'post':
-                response = await self._make_request('POST', submit_url, data=form_data)
+                response = await self._make_request('POST', submit_url, data=form_data, skip_session_check=True)
             else:
-                response = await self._make_request('GET', submit_url, params=form_data)
+                response = await self._make_request('GET', submit_url, params=form_data, skip_session_check=True)
             
             if response.status == 200:
                 content = await response.text()
@@ -1480,7 +1481,7 @@ class EmmaScanner:
                 
                 logger.info(f"Following accept link: {click_url}")
                 
-                response = await self._make_request('GET', click_url)
+                response = await self._make_request('GET', click_url, skip_session_check=True)
                 if response.status == 200:
                     content = await response.text()
                     return self._is_search_page(content)
@@ -1525,7 +1526,7 @@ class EmmaScanner:
             for test_url in test_urls:
                 try:
                     await asyncio.sleep(random.uniform(2, 4))
-                    response = await self._make_request('GET', test_url)
+                    response = await self._make_request('GET', test_url, skip_session_check=True)
                     
                     if response.status == 200:
                         content = await response.text()
@@ -1758,7 +1759,7 @@ class EmmaScanner:
         for endpoint in test_endpoints[:3]:
             try:
                 logger.info(f"Trying search endpoint: {endpoint}")
-                response = await self._make_request('GET', endpoint)
+                response = await self._make_request('GET', endpoint, skip_session_check=True)
                 
                 if response.status == 200:
                     content = await response.text()
