@@ -1673,6 +1673,22 @@ class EmmaScanner:
         title_lower = title.lower()
         return any(keyword in title_lower for keyword in urgent_keywords)
     
+    def _extract_issuer_name(self, title: str, text: str) -> str:
+        # Simple issuer name extraction logic
+        for keyword in ["authority", "district", "county", "city", "state"]:
+            if keyword in title.lower():
+                return title.split()[0]
+        return ""
+    
+    def _extract_document_type(self, title: str, text: str) -> str:
+        # Simple document type extraction logic
+        doc_types = ["annual report", "audit", "financial statement", "disclosure", "notice"]
+        title_lower = title.lower()
+        for doc_type in doc_types:
+            if doc_type in title_lower:
+                return doc_type
+        return "disclosure"
+    
     async def scrape_emma_search(self) -> List[Dict]:
         try:
             await self._ensure_healthy_session()
@@ -2089,34 +2105,79 @@ class EmmaScanner:
             
             return {"processed": 0, "matches": 0, "queued": 0}
 
-       async def process_background_queue(self, max_items: int = 20) -> Dict[str, int]:
-            if self.resource_monitor:
-                self.resource_monitor.start_monitoring("enhanced_background_processing")
-    
-    try:
-        await self._ensure_healthy_session()
+    async def process_background_queue(self, max_items: int = 20) -> Dict[str, int]:
+        if self.resource_monitor:
+            self.resource_monitor.start_monitoring("enhanced_background_processing")
         
-        ready_docs = await self.processing_queue.get_ready_documents(priority=2, limit=max_items)
-        
-        if not ready_docs:
-            logger.info("No documents in background queue")
-            return {"processed": 0, "matches": 0, "errors": 0}
-        
-        logger.info(f"Enhanced background processing: {len(ready_docs)} documents")
-        # Add your document processing logic here
+        try:
+            await self._ensure_healthy_session()
+            
+            ready_docs = await self.processing_queue.get_ready_documents(priority=2, limit=max_items)
+            
+            if not ready_docs:
+                logger.info("No documents in background queue")
+                return {"processed": 0, "matches": 0, "errors": 0}
+            
+            logger.info(f"Enhanced background processing: {len(ready_docs)} documents")
+            
+            search_queries = await self.db.get_search_queries(active_only=True)
             processed = 0
             matches = 0
             errors = 0
             
-            # Process the documents (add your actual logic here)
             for doc in ready_docs:
                 try:
-                    # Your document processing code goes here
+                    await self.processing_queue.mark_processing(doc["queue_id"])
+                    
+                    logger.info(f"Background processing: {doc['title'][:50]}...")
+                    
+                    content_result = await self.fetch_document_content(doc["url"])
+                    full_text = content_result["text"]
+                    page_info = content_result["page_info"]
+                    file_size_kb = content_result.get("file_size_kb", 0)
+                    pages_processed = content_result.get("pages_processed", 0)
+                    
+                    if len(full_text) > 100:
+                        emma_direct_url = doc["url"]
+                        issuer_name = self._extract_issuer_name(doc["title"], full_text)
+                        document_type = self._extract_document_type(doc["title"], full_text)
+                        
+                        searchable_text = f"{doc['title']} {full_text}"
+                        
+                        disclosure_id = await self.db.save_disclosure(
+                            doc["metadata"].get("guid", f"bg_{doc['queue_id']}"),
+                            doc["title"],
+                            doc["url"],
+                            emma_direct_url,
+                            doc["metadata"].get("pub_date", datetime.now().strftime('%m/%d/%Y')),
+                            issuer_name,
+                            document_type,
+                            file_size_kb,
+                            pages_processed
+                        )
+                        
+                        if disclosure_id:
+                            matched_queries = []
+                            for query in search_queries:
+                                match_result = query.matches(searchable_text, page_info)
+                                if match_result["matched"]:
+                                    matched_queries.append(query)
+                                    await self.db.save_match(disclosure_id, query.id, match_result)
+                            
+                            if matched_queries:
+                                matches += 1
+                                query_names = [q.name for q in matched_queries]
+                                logger.info(f"BACKGROUND MATCH: '{doc['title'][:50]}...' → {', '.join(query_names)}")
+                    
+                    await self.processing_queue.mark_completed(doc["queue_id"])
                     processed += 1
+                    
                 except Exception as doc_error:
-                    logger.error(f"Error processing document: {doc_error}")
+                    logger.error(f"Error processing document {doc['title'][:50]}: {doc_error}")
+                    await self.processing_queue.mark_failed(doc["queue_id"], str(doc_error))
                     errors += 1
             
+            logger.info(f"Background processing complete: {processed} processed, {matches} matches, {errors} errors")
             return {"processed": processed, "matches": matches, "errors": errors}
             
         except Exception as e:
@@ -2125,4 +2186,329 @@ class EmmaScanner:
         
         finally:
             if self.resource_monitor:
-                self.resource_monitor.stop_monitoring("enhanced_background_processing")
+                summary = self.resource_monitor.finish_monitoring()
+                await self.db.save_resource_log(summary)
+
+# Initialize database
+db = Database(DATABASE_PATH)
+
+# FastAPI app with lifespan
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    scheduler = AsyncIOScheduler()
+    
+    # Schedule regular monitoring
+    scheduler.add_job(
+        run_scheduled_scan,
+        'cron',
+        hour=2,
+        minute=0,
+        id='daily_emma_scan'
+    )
+    
+    # Schedule cleanup
+    scheduler.add_job(
+        cleanup_old_data,
+        'cron',
+        hour=3,
+        minute=0,
+        id='daily_cleanup'
+    )
+    
+    scheduler.start()
+    
+    # Run initial scan if configured
+    if RUN_INITIAL_SCAN:
+        logger.info("Running initial EMMA scan...")
+        asyncio.create_task(run_scheduled_scan())
+    
+    yield
+    
+    # Shutdown
+    scheduler.shutdown()
+
+app = FastAPI(lifespan=lifespan)
+templates = Jinja2Templates(directory="templates")
+
+async def run_scheduled_scan():
+    """Run scheduled EMMA monitoring scan"""
+    try:
+        async with EmmaScanner(db) as scanner:
+            result = await scanner.scan_with_priority_processing()
+            logger.info(f"Scheduled scan completed: {result}")
+            
+            if result.get("matches", 0) > 0:
+                await send_match_alerts()
+                
+    except Exception as e:
+        logger.error(f"Scheduled scan error: {e}")
+
+async def cleanup_old_data():
+    """Clean up old data from database"""
+    try:
+        deleted = await db.cleanup_old(RETENTION_DAYS)
+        logger.info(f"Cleanup completed: {deleted} old records deleted")
+    except Exception as e:
+        logger.error(f"Cleanup error: {e}")
+
+async def send_match_alerts():
+    """Send email alerts for new matches"""
+    try:
+        if not RESEND_API_KEY:
+            logger.warning("No RESEND_API_KEY configured, skipping email alerts")
+            return
+            
+        recent_matches = await db.get_recent_matches(days=1)
+        
+        if not recent_matches:
+            logger.info("No recent matches to send alerts for")
+            return
+        
+        # Group matches by alert emails
+        email_groups = {}
+        for match in recent_matches:
+            for email in match.get("alert_emails", []):
+                if email not in email_groups:
+                    email_groups[email] = []
+                email_groups[email].append(match)
+        
+        # Send emails
+        for email, matches in email_groups.items():
+            try:
+                await send_email_alert(email, matches)
+                logger.info(f"Sent alert email to {email} for {len(matches)} matches")
+            except Exception as e:
+                logger.error(f"Failed to send email to {email}: {e}")
+                
+    except Exception as e:
+        logger.error(f"Error sending match alerts: {e}")
+
+async def send_email_alert(email: str, matches: List[Dict]):
+    """Send email alert for matches"""
+    try:
+        import requests
+        
+        subject = f"EMMA Monitor Alert: {len(matches)} New Matches"
+        
+        html_content = f"""
+        <h2>EMMA Monitor - {len(matches)} New Matches Found</h2>
+        
+        <div style="margin: 20px 0;">
+            <strong>Alert Summary:</strong>
+            <ul>
+                <li>Total Matches: {len(matches)}</li>
+                <li>Date: {datetime.now().strftime('%Y-%m-%d %H:%M')}</li>
+            </ul>
+        </div>
+        """
+        
+        for match in matches[:10]:  # Limit to 10 matches per email
+            html_content += f"""
+            <div style="border: 1px solid #ddd; padding: 15px; margin: 10px 0;">
+                <h3><a href="{match['emma_direct_url']}">{match['title'][:100]}...</a></h3>
+                <p><strong>Issuer:</strong> {match.get('issuer_name', 'N/A')}</p>
+                <p><strong>Document Type:</strong> {match.get('document_type', 'N/A')}</p>
+                <p><strong>Published:</strong> {match['pub_date']}</p>
+                <p><strong>Matched Terms:</strong> {', '.join(match['matched_terms'])}</p>
+                <p><strong>Relevance Score:</strong> {match['relevance_score']}/100</p>
+                {f"<p><strong>Pages with Matches:</strong> {', '.join(map(str, match['pages_with_matches']))}</p>" if match['pages_with_matches'] else ""}
+            </div>
+            """
+        
+        if len(matches) > 10:
+            html_content += f"<p><em>... and {len(matches) - 10} more matches</em></p>"
+        
+        payload = {
+            "from": FROM_EMAIL,
+            "to": [email],
+            "subject": subject,
+            "html": html_content
+        }
+        
+        response = requests.post(
+            "https://api.resend.com/emails",
+            headers={
+                "Authorization": f"Bearer {RESEND_API_KEY}",
+                "Content-Type": "application/json"
+            },
+            json=payload,
+            timeout=10
+        )
+        
+        if response.status_code == 200:
+            logger.info(f"Email sent successfully to {email}")
+        else:
+            logger.error(f"Email send failed: {response.status_code} - {response.text}")
+            
+    except Exception as e:
+        logger.error(f"Email send error: {e}")
+
+@app.get("/", response_class=HTMLResponse)
+async def dashboard(request: Request):
+    try:
+        recent_matches = await db.get_recent_matches(days=7)
+        search_queries = await db.get_search_queries()
+        batches = await db.get_batches()
+        
+        # Get queue stats
+        async with EmmaScanner(db) as scanner:
+            queue_stats = await scanner.processing_queue.get_queue_stats()
+        
+        # Get session stats
+        session_stats = await db.get_session_stats(hours=24)
+        
+        stats = {
+            "total_matches": len(recent_matches),
+            "total_queries": len(search_queries),
+            "active_queries": len([q for q in search_queries if q.active]),
+            "total_batches": len(batches),
+            "queue_pending": queue_stats.get("pending_background", 0),
+            "queue_processing": queue_stats.get("processing", 0),
+            "session_success_rate": session_stats.get("success_rate", 0),
+            "avg_response_time": session_stats.get("avg_response_time_ms", 0)
+        }
+        
+        return templates.TemplateResponse("dashboard.html", {
+            "request": request,
+            "matches": recent_matches[:20],
+            "queries": search_queries,
+            "batches": batches,
+            "stats": stats,
+            "queue_stats": queue_stats,
+            "session_stats": session_stats
+        })
+        
+    except Exception as e:
+        logger.error(f"Dashboard error: {e}")
+        return templates.TemplateResponse("dashboard.html", {
+            "request": request,
+            "matches": [],
+            "queries": [],
+            "batches": [],
+            "stats": {},
+            "error": str(e)
+        })
+
+@app.post("/add_query")
+async def add_search_query(
+    name: str = Form(...),
+    query: str = Form(...),
+    search_type: str = Form(...),
+    batch_name: str = Form(""),
+    alert_emails: str = Form("")
+):
+    try:
+        await db.save_search_query(name, query, search_type, batch_name, alert_emails)
+        return RedirectResponse(url="/", status_code=303)
+    except Exception as e:
+        logger.error(f"Error adding query: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/update_query/{query_id}")
+async def update_search_query(
+    query_id: int,
+    name: str = Form(...),
+    query: str = Form(...),
+    search_type: str = Form(...),
+    active: bool = Form(False),
+    batch_name: str = Form(""),
+    alert_emails: str = Form("")
+):
+    try:
+        await db.update_search_query(query_id, name, query, search_type, active, batch_name, alert_emails)
+        return RedirectResponse(url="/", status_code=303)
+    except Exception as e:
+        logger.error(f"Error updating query: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/delete_query/{query_id}")
+async def delete_search_query(query_id: int):
+    try:
+        await db.delete_search_query(query_id)
+        return RedirectResponse(url="/", status_code=303)
+    except Exception as e:
+        logger.error(f"Error deleting query: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/run_scan")
+async def manual_scan():
+    try:
+        async with EmmaScanner(db) as scanner:
+            result = await scanner.scan_with_priority_processing()
+            
+            if result.get("matches", 0) > 0:
+                await send_match_alerts()
+            
+            return JSONResponse({
+                "success": True,
+                "message": f"Scan completed: {result['processed']} processed, {result['matches']} matches, {result['queued']} queued",
+                "result": result
+            })
+            
+    except Exception as e:
+        logger.error(f"Manual scan error: {e}")
+        return JSONResponse({
+            "success": False,
+            "error": str(e)
+        }, status_code=500)
+
+@app.post("/process_background")
+async def manual_background_processing():
+    try:
+        async with EmmaScanner(db) as scanner:
+            result = await scanner.process_background_queue()
+            
+            return JSONResponse({
+                "success": True,
+                "message": f"Background processing completed: {result['processed']} processed, {result['matches']} matches, {result['errors']} errors",
+                "result": result
+            })
+            
+    except Exception as e:
+        logger.error(f"Manual background processing error: {e}")
+        return JSONResponse({
+            "success": False,
+            "error": str(e)
+        }, status_code=500)
+
+@app.get("/api/stats")
+async def get_stats():
+    try:
+        recent_matches = await db.get_recent_matches(days=7)
+        search_queries = await db.get_search_queries()
+        
+        async with EmmaScanner(db) as scanner:
+            queue_stats = await scanner.processing_queue.get_queue_stats()
+        
+        session_stats = await db.get_session_stats(hours=24)
+        
+        return JSONResponse({
+            "matches": {
+                "total": len(recent_matches),
+                "today": len([m for m in recent_matches if m['created_at'].startswith(datetime.now().strftime('%Y-%m-%d'))])
+            },
+            "queries": {
+                "total": len(search_queries),
+                "active": len([q for q in search_queries if q.active])
+            },
+            "queue": queue_stats,
+            "session": session_stats
+        })
+        
+    except Exception as e:
+        logger.error(f"Stats API error: {e}")
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+@app.get("/health")
+async def health_check():
+    return JSONResponse({
+        "status": "healthy",
+        "timestamp": datetime.now().isoformat(),
+        "database": "connected" if db else "error"
+    })
+
+if __name__ == "__main__":
+    import uvicorn
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run(app, host="0.0.0.0", port=port)
