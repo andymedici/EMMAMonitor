@@ -93,22 +93,28 @@ class SessionState:
         
     def is_healthy(self) -> bool:
         """Check if session appears healthy with comprehensive criteria"""
+        # Give new sessions a chance - don't immediately mark as unhealthy
         if not self.established_at:
-            return False
+            # Allow up to 60 seconds for new sessions to establish
+            session_age = (datetime.utcnow() - datetime.fromtimestamp(int(self.session_id.split('_')[1]))).seconds
+            if session_age < 60:
+                return True
+            else:
+                return False
             
         failure_rate = self.failure_count / max(self.request_count, 1)
-        if failure_rate > 0.3:
+        if failure_rate > 0.5:  # Increased from 0.3 to 0.5
             return False
             
         if self.last_successful_request:
             age_minutes = (datetime.utcnow() - self.last_successful_request).seconds / 60
-            if age_minutes > 30:
+            if age_minutes > 60:  # Increased from 30 to 60 minutes
                 return False
         
         if self.consecutive_failures >= SESSION_FAILURE_THRESHOLD:
             return False
             
-        if self.blocked_count > 3:
+        if self.blocked_count > 5:  # Increased from 3 to 5
             return False
             
         if self.last_rate_limit:
@@ -121,13 +127,13 @@ class SessionState:
     def should_rotate(self) -> bool:
         """Determine if session should be rotated"""
         if not self.established_at:
-            return True
+            return False  # Don't rotate sessions that haven't been established yet
             
         age_minutes = (datetime.utcnow() - self.established_at).seconds / 60
-        if age_minutes > SESSION_ROTATION_MINUTES:
+        if age_minutes > SESSION_ROTATION_MINUTES * 2:  # Double the rotation time
             return True
             
-        if self.request_count >= MAX_REQUESTS_PER_SESSION:
+        if self.request_count >= MAX_REQUESTS_PER_SESSION * 2:  # Double the request limit
             return True
             
         if not self.is_healthy():
